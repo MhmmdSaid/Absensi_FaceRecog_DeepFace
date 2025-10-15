@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deepface Attendance System</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      /* Tambahkan style untuk highlight status */
+      .status-in {
+        color: #10b981; /* green-500 */
+        font-weight: 700;
+      }
+      .status-out {
+        color: #ef4444; /* red-500 */
+        font-weight: 700;
+      }
+      .status-done {
+        color: #f59e0b; /* yellow-500 */
+        font-weight: 700;
+      }
+    </style>
+  </head>
+
+  <body class="layout-body">
+
+    <header class="layout-header">
+      <div class="header-logo">
+        <img src="png/telkomsat.png" alt="Telkomsat" />
+      </div>
+    </header>
+
+    <aside class="layout-sidebar">
+      <a href="main.html" class="sidebar-link active">
+        <img src="png/absen.png" alt="Absensi" class="sidebar-icon" />
+        Absensi Wajah
+      </a>
+
+      <a href="data.html" class="sidebar-link">
+        <img src="png/data.png" alt="Data Absensi" class="sidebar-icon" />
+        Data Absensi Hari Ini
+      </a>
+
+      <a href="data_collector.html" class="sidebar-link">
+        <img src="png/collector.png" alt="Data Collector" class="sidebar-icon" />
+        Data Collector
+      </a>
+
+      <a href="settings.html" class="sidebar-link">
+        <img src="png/database.png" alt="Settings" class="sidebar-icon" />
+        Pengaturan & Indexing
+      </a>
+    </aside>
+
+    <main class="layout-main container-card">
+      <div class="content-header">
+        <h2>Absensi Cepat DeepFace</h2>
+        <button id="refreshBtn" class="btn-refresh" onclick="getDevices()">
+            Refresh Kamera
+        </button>
+      </div>
+
+      <div class="mb-6">
+        <label for="cameraSelect" class="block text-sm font-medium text-gray-700 mb-2">
+          Pilih Perangkat Kamera:
+        </label>
+        <select
+          id="cameraSelect"
+          class="w-full border border-gray-300 rounded-md p-2 focus:ring-blue-500 focus:border-blue-500"
+        ></select>
+      </div>
+
+      <div class="flex flex-col items-center mb-6">
+        <video
+          id="webcam"
+          class="rounded-lg mb-4 glow-effect"
+          autoplay
+          playsinline
+        ></video>
+        <canvas id="faceCanvas" class="hidden"></canvas>
+        
+        <div class="flex space-x-4">
+            <button
+                id="captureInButton"
+                class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition duration-300 transform active:scale-95 disabled:bg-gray-400 flex items-center"
+                disabled
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1m0-9V4"/>
+                </svg>
+                Absen MASUK
+            </button>
+            <button
+                id="captureOutButton"
+                class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition duration-300 transform active:scale-95 disabled:bg-gray-400 flex items-center"
+                disabled
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 8l4 4m0 0l-4 4m4-4H3m6-4V4m0 16v-4"/>
+                </svg>
+                Absen PULANG
+            </button>
+        </div>
+        </div>
+
+      <div id="statusArea" class="status-area">
+        Pilih Absen Masuk atau Absen Pulang, lalu tekan tombol di atas.
+      </div>
+
+      <div id="resultDetails" class="hidden mt-6 p-4 border border-gray-200 rounded-lg">
+        <h3 class="font-semibold text-lg mb-2 text-blue-600">Detail Hasil Absensi</h3>
+        <p><span class="font-medium">Status Absen:</span> <span id="resType"></span></p>
+        <p><span class="font-medium">Nama:</span> <span id="resName"></span></p>
+        <p><span class="font-medium">Instansi:</span> <span id="resInstansi"></span></p>
+        <p><span class="font-medium">Waktu:</span> <span id="resTime"></span></p>
+        <p><span class="font-medium">Jarak Vektor:</span> <span id="resDistance"></span></p>
+        <p><span class="font-medium">Latensi:</span> <span id="resLatency"></span></p>
+        <div class="mt-4">
+          <span class="font-medium block mb-1">Foto Absensi:</span>
+          <img
+            id="resImage"
+            src=""
+            alt="Foto Absensi"
+            class="w-24 h-24 object-cover rounded-md shadow-md"
+          />
+        </div>
+      </div>
+    </main>
+
+    <footer class="layout-footer">
+      &copy; 2025 Telkomsat Bogor
+    </footer>
+
+    <audio id="audioPlayer" class="hidden"></audio>
+
+    <script>
+      const API_BASE_URL = "http://127.0.0.1:8000";
+      const CAMERA_WIDTH = 640;
+      const CAMERA_HEIGHT = 480;
+      const video = document.getElementById("webcam");
+      const canvas = document.getElementById("faceCanvas");
+      // KRITIS: Ubah variabel ke dua tombol
+      const captureInButton = document.getElementById("captureInButton"); 
+      const captureOutButton = document.getElementById("captureOutButton");
+      // END KRITIS
+      const statusArea = document.getElementById("statusArea");
+      const audioPlayer = document.getElementById("audioPlayer");
+      const cameraSelect = document.getElementById("cameraSelect");
+      const resultDetails = document.getElementById("resultDetails");
+      
+      const resType = document.getElementById("resType"); 
+      const resName = document.getElementById("resName");
+      const resInstansi = document.getElementById("resInstansi");
+      const resTime = document.getElementById("resTime");
+      const resDistance = document.getElementById("resDistance");
+      const resLatency = document.getElementById("resLatency");
+      const resImage = document.getElementById("resImage");
+      let currentStream = null;
+
+      function updateStatus(message, type = "info") {
+        const statusMap = {
+          success: "status-area bg-green-100 text-green-700",
+          error: "status-area error",
+          warning: "status-area bg-yellow-100 text-yellow-700",
+          info: "status-area",
+        };
+        statusArea.className = statusMap[type] || "status-area";
+        statusArea.innerHTML = `<strong>${message}</strong>`;
+      }
+
+      function setCaptureButtonsDisabled(isDisabled) {
+        captureInButton.disabled = isDisabled;
+        captureOutButton.disabled = isDisabled;
+      }
+      
+      function playAudio(trackId) {
+        audioPlayer.src = `${API_BASE_URL}/audio/${trackId}`;
+        audioPlayer.play().catch((e) => console.error("Gagal memutar audio:", e));
+      }
+
+      function displayResult(data, image_url) {
+        const now = new Date();
+        
+        let typeText = "N/A";
+        let typeClass = "";
+        
+        if (data.type === 'IN') {
+            typeText = "MASUK";
+            typeClass = "status-in";
+        } else if (data.type === 'OUT') {
+            typeText = "PULANG";
+            typeClass = "status-out";
+        } else if (data.status === 'duplicate') {
+            typeText = `SUDAH ABSEN ${data.type}`; 
+            typeClass = "status-done";
+        }
+        
+        resType.textContent = typeText;
+        resType.className = typeClass;
+        
+        resName.textContent = data.name || "N/A";
+        resInstansi.textContent = data.instansi || "N/A";
+        // Jika status duplicate, tampilkan waktu log dari data (log_time)
+        resTime.textContent = (data.status === 'duplicate' && data.log_time) ? data.log_time : now.toLocaleTimeString("id-ID"); 
+        resDistance.textContent = data.distance || "N/A";
+        resLatency.textContent = data.latency || "N/A";
+        if (image_url) {
+          resImage.src = `${API_BASE_URL}${image_url}`;
+          resImage.classList.remove("hidden");
+        } else resImage.classList.add("hidden");
+        resultDetails.classList.remove("hidden");
+      }
+
+      async function getDevices() {
+        // ... (getDevices function SAMA)
+        try {
+          await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = devices.filter((d) => d.kind === "videoinput");
+          cameraSelect.innerHTML = "";
+          if (!videoDevices.length) {
+            updateStatus("Tidak ada perangkat kamera.", "error");
+            setCaptureButtonsDisabled(true);
+            return;
+          }
+          videoDevices.forEach((device, i) => {
+            const opt = document.createElement("option");
+            opt.value = device.deviceId;
+            opt.textContent = device.label || `Kamera ${i + 1}`;
+            cameraSelect.appendChild(opt);
+          });
+          startStream(videoDevices[0].deviceId);
+        } catch (err) {
+          updateStatus(`Gagal akses kamera: ${err.message}`, "error");
+        }
+      }
+
+      async function startStream(deviceId) {
+        // ... (startStream function SAMA)
+        if (currentStream) currentStream.getTracks().forEach((t) => t.stop());
+        const constraints = {
+          video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: CAMERA_WIDTH }, height: { ideal: CAMERA_HEIGHT } },
+        };
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = currentStream;
+          video.onloadedmetadata = () => {
+            video.play();
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            // KRITIS: Aktifkan dua tombol
+            setCaptureButtonsDisabled(false); 
+            // END KRITIS
+            updateStatus("Kamera siap.", "info");
+          };
+        } catch (err) {
+          updateStatus(`Gagal memulai stream: ${err.message}`, "error");
+            // KRITIS: Matikan dua tombol
+          setCaptureButtonsDisabled(true);
+        }
+      }
+
+      cameraSelect.addEventListener("change", (e) => startStream(e.target.value));
+
+      // KRITIS: Fungsi sekarang menerima 'type' (IN/OUT)
+      async function captureAndRecognize(type) { 
+        if (!currentStream) return updateStatus("Kamera belum aktif.", "warning");
+        setCaptureButtonsDisabled(true);
+        updateStatus(`Sedang memproses Absensi ${type === 'IN' ? 'MASUK' : 'PULANG'}...`, "info");
+        resultDetails.classList.add("hidden");
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(async (blob) => {
+          const formData = new FormData();
+          formData.append("file", blob, "capture.jpg");
+          // KRITIS: Tambahkan parameter type_absensi ke FormData
+          formData.append("type_absensi", type);
+          // END KRITIS
+          try {
+            const res = await fetch(`${API_BASE_URL}/recognize`, { method: "POST", body: formData });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            
+            let image_url = data.image_url;
+            let msg = data.message || "Deteksi selesai.";
+            let statusType = data.type || type; // Gunakan tipe yang dikirim atau tipe yang diinput
+            let type_ui = "info";
+
+            if (data.status === "success") {
+              type_ui = "success";
+              if (statusType === 'IN') {
+                msg = `Absensi Masuk Berhasil! Selamat datang, ${data.name}.`;
+              } else { // statusType === 'OUT'
+                msg = `Absensi Pulang Berhasil! Terima kasih, ${data.name}.`;
+              }
+              displayResult(data, image_url);
+              
+            } else if (data.status === "duplicate") {
+              type_ui = "warning";
+              msg = `${data.name} sudah Absen ${statusType === 'IN' ? 'MASUK' : 'PULANG'} hari ini.`;
+              displayResult(data, image_url);
+              
+            } else if (data.status === "unrecognized") {
+              type_ui = "error";
+              msg = `Wajah tidak dikenal. ${data.message}`;
+              
+            } else type_ui = "error";
+            
+            updateStatus(msg, type_ui);
+            if (data.track_id) playAudio(data.track_id);
+            
+          } catch (e) {
+            updateStatus(`Gagal konek API: ${e.message}`, "error");
+          } finally {
+            setCaptureButtonsDisabled(false);
+          }
+        }, "image/jpeg", 0.9);
+      }
+
+      window.onload = () => {
+        // KRITIS: Hubungkan tombol dengan fungsi dan kirim parameter 'IN'/'OUT'
+        captureInButton.addEventListener("click", () => captureAndRecognize('IN'));
+        captureOutButton.addEventListener("click", () => captureAndRecognize('OUT'));
+        // END KRITIS
+        getDevices();
+      };
+    </script>
+  </body>
+</html>
