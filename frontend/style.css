@@ -2,19 +2,25 @@
 
 body {
   font-family: "Inter", sans-serif;
+  /* Hapus margin dan padding default agar tidak mengganggu layout */
+  margin: 0;
+  padding: 0;
 }
 
+/* --- KRITIS: PERBAIKAN TATA LETAK UTAMA DENGAN CSS GRID --- */
 .layout-body {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 20px;
-  padding: 20px;
-  background-color: #f3f4f6;
-  min-height: 100vh;
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "sidebar main"
+    "footer footer";
+  grid-template-columns: 340px 1fr; /* Membagi Sidebar dan Main */
+  /* ... kode lain ... */
 }
+/* ----------------------------------------------------------- */
 
 .layout-header {
+  grid-area: header;
   width: 100%;
   height: 80px;
   display: flex;
@@ -27,13 +33,13 @@ body {
 }
 
 .header-logo img {
-  height: 100px;
+  height: 60px; 
   width: auto;
 }
 
 .layout-sidebar {
-  width: 300px;
-  height: 600px;
+  grid-area: sidebar;
+  width: 100%; 
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -87,8 +93,8 @@ body {
 }
 
 .layout-main {
+  grid-area: main;
   flex: 1;
-  height: 600px;
   background: white;
   border-radius: 12px;
   padding: 30px;
@@ -114,6 +120,110 @@ body {
   font-weight: 600;
   color: #81130d;
 }
+
+/* --- ABSENSI DAN WEBCAM STYLING --- */
+
+/* Ini penting agar class grid di main.html berfungsi */
+.grid {
+  display: grid;
+}
+
+/* Panel Webcam (Kolom 1) */
+.webcam-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* Hilangkan border agar tampilan lebih bersih (opsional) */
+    /* border: 1px solid #e5e7eb; */ 
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+/* Area Video Webcam (KRITIS: Ukuran) */
+#my_camera {
+    /* Harus di-override agar Webcam.js tidak membesar secara tak terduga */
+    width: 100% !important; 
+    height: auto !important;
+    max-width: 480px; 
+    border: 3px solid #d1d5db;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+/* Panel Kontrol dan Hasil (Kolom 2) */
+.control-panel {
+    display: flex;
+    flex-direction: column;
+    padding: 1rem; 
+}
+
+/* Gaya tombol absensi */
+.btn-action {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  color: white;
+  transition: background-color 0.2s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  font-size: 14px; 
+}
+
+.btn-action.bg-green-500 {
+  background-color: #10b981;
+}
+.btn-action.bg-red-500 {
+  background-color: #ef4444;
+}
+
+/* Area Status/Notifikasi */
+.status-box {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-align: center;
+    border: 1px solid;
+}
+
+.status-box.bg-green-100 { background-color: #d1fae5; border-color: #10b981; color: #065f46; }
+.status-box.bg-red-100 { background-color: #fee2e2; border-color: #ef4444; color: #991b1b; }
+.status-box.bg-yellow-100 { background-color: #fffbe9; border-color: #f59e0b; color: #92400e; }
+.status-box.bg-blue-100 { background-color: #eff6ff; border-color: #3b82f6; color: #1e40af; }
+.status-box.bg-gray-100 { background-color: #f3f4f6; border-color: #d1d5db; color: #4b5563; }
+
+
+/* Detail Hasil Absensi */
+.result-card {
+    padding: 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background-color: #f9fafb;
+    margin-top: 1rem;
+}
+
+.result-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.result-table td {
+    padding: 0.5rem 0;
+    border-bottom: 1px dashed #e5e7eb;
+}
+
+.result-table tr:last-child td {
+    border-bottom: none;
+}
+
+.absensi-photo-preview {
+    max-width: 100px;
+    border: 1px solid #d1d5db;
+    border-radius: 0.25rem;
+    margin-top: 10px;
+}
+/* --- END ABSENSI STYLING --- */
+
 
 .btn-refresh {
   display: flex;
@@ -149,7 +259,7 @@ body {
 }
 
 .status-area.error {
-  background-color: f3f4f6;
+  background-color: #f3f4f6;
 }
 
 .table-container {
@@ -196,6 +306,7 @@ td img {
 }
 
 .layout-footer {
+  grid-area: footer;
   width: 100%;
   height: 20px;
   display: flex;

@@ -1,24 +1,29 @@
-# backend/utils.py
 import numpy as np
-import cv2 # PENTING: Diperlukan untuk membaca data 'bytes' menjadi array gambar (NumPy Array)
+import cv2 
 from deepface import DeepFace
 import os
+# import psycopg2 # Hapus import yang tidak digunakan jika koneksi DB di handle di file lain
 
-# --- KONFIGURASI PENTING ---
-# Batas ambang jarak kosinus (Cosine Distance) untuk penentuan wajah dikenali (Threshold)
-# Nilai default ini disetel ke 0.40 agar bisa diimpor oleh backend/main.py.
+# --- KONFIGURASI KRITIS (Sumber Tunggal) ---
+
+# Nama model DeepFace yang digunakan (Harus konsisten di seluruh proyek: indexing & real-time)
+MODEL_NAME = "ArcFace" 
+# Dimensi vektor yang dihasilkan oleh ArcFace. HARUS SAMA dengan vector(512) di tabel DB.
+EMBEDDING_DIM = 512 
+# Batas ambang jarak kosinus (Cosine Distance) untuk penentuan wajah dikenali
 # Wajah dikenali jika jarak <= DISTANCE_THRESHOLD
 DISTANCE_THRESHOLD = 0.40 
 
+
 # --- FUNGSI EKSTRAKSI FITUR ---
 
-def extract_face_features(image_bytes: bytes, model_name="ArcFace"):
+def extract_face_features(image_bytes: bytes):
     """
     Ekstraksi fitur wajah (embedding) menggunakan model DeepFace dari data bytes gambar.
-
+    Menggunakan MODEL_NAME yang didefinisikan secara global di utils.py.
+    
     Args:
         image_bytes (bytes): Data gambar yang diunggah dari frontend.
-        model_name (str): Nama model DeepFace yang akan digunakan (e.g., 'ArcFace').
         
     Returns:
         list of list[float]: List dari embedding wajah yang terdeteksi. 
@@ -28,7 +33,7 @@ def extract_face_features(image_bytes: bytes, model_name="ArcFace"):
     try:
         # 1. Konversi bytes (dari upload FastAPI) ke array numpy mentah
         np_array = np.frombuffer(image_bytes, np.uint8)
-        # 2. Decode array bytes menjadi array gambar yang dapat dibaca OpenCV (cv2.imread)
+        # 2. Decode array bytes menjadi array gambar yang dapat dibaca OpenCV (cv2.imdecode)
         img_array = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
 
         if img_array is None:
@@ -38,13 +43,16 @@ def extract_face_features(image_bytes: bytes, model_name="ArcFace"):
         # 3. DeepFace.represent: menerima numpy array (img_array)
         results = DeepFace.represent(
             img_path=img_array, # Menerima NumPy array, bukan path file
-            model_name=model_name,
-            enforce_detection=True, # Memaksa deteksi wajah
+            model_name=MODEL_NAME, # Menggunakan konstanta global
+            enforce_detection=True, 
             detector_backend='opencv' 
         )
     except ValueError as ve:
-        # Menangani kesalahan spesifik DeepFace saat enforce_detection=True dan wajah tidak ditemukan
-        print(f"⚠️ Peringatan: DeepFace gagal mendeteksi wajah atau membaca gambar. Detail: {ve}")
+        # Menangani kesalahan DeepFace saat wajah tidak ditemukan
+        if 'Face could not be detected' in str(ve):
+             print(f"⚠️ Peringatan: Tidak ada wajah terdeteksi pada input.")
+        else:
+             print(f"⚠️ Peringatan: DeepFace gagal memproses gambar. Detail: {ve}")
         return []
     except Exception as e:
         # Menangani error umum lainnya
@@ -55,9 +63,12 @@ def extract_face_features(image_bytes: bytes, model_name="ArcFace"):
     if not results:
         return []
 
-    # Ambil embedding dari semua wajah yang dideteksi (meskipun main.py hanya akan menggunakan yang pertama)
+    # Ambil embedding dari semua wajah yang dideteksi
     embeddings_list = [res["embedding"] for res in results]
     
-    # Kita mengembalikan list of list (Python list) agar mudah diproses di main.py 
-    # sebelum dikonversi ke string vector PostgreSQL.
+    # Periksa dimensi sebagai validasi tambahan (meskipun deepface harus benar)
+    if embeddings_list and len(embeddings_list[0]) != EMBEDDING_DIM:
+         print(f"❌ ERROR: Dimensi embedding ({len(embeddings_list[0])}) tidak cocok dengan EMBEDDING_DIM ({EMBEDDING_DIM})")
+         return []
+         
     return embeddings_list

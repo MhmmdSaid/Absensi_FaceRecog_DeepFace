@@ -21,12 +21,15 @@ ID,Name,Instansi,Kategori,Image_Folder
 20,Rahma,Politeknik Negeri Jakarta,Mahasiswa Internship,Rahma
 21,Thalia,Politeknik Negeri Jakarta,Mahasiswa Internship,Thalia
 22,Aufar,Institut Pertanian Bogor,Mahasiswa Internship,Aufar
-23,Adan,Institut Pertanian Bogor,Mahasiswa Internship,Adan
-24,Abdul,Institut Pertanian Bogor,Mahasiswa Internship,Abdul
-25,Oktori,Institut Pertanian Bogor,Mahasiswa Internship,Oktori
-26,Sandi,Institut Pertanian Bogor,Mahasiswa Internship,Sandi
-27,Marsya,Institut Pertanian Bogor,Mahasiswa Internship,Marsya
-28,Capriandika,Institut Pertanian Bogor,Mahasiswa Internship,Capriandika
-29,Radit,SMK INFOKOM,Siswa Magang,Radit
-30,Ryu,SMK INFOKOM,Siswa Magang,Ryu
-31,Pak Nugroho,General Manager,Staff,Pak Nugroho
+23,Irsyad,Institut Pertanian Bogor,Mahasiswa Internship,Irsyad
+24,Adan,Institut Pertanian Bogor,Mahasiswa Internship,Adan
+25,Abdul,Institut Pertanian Bogor,Mahasiswa Internship,Abdul
+26,Oktori,Institut Pertanian Bogor,Mahasiswa Internship,Oktori
+27,Sandi,Institut Pertanian Bogor,Mahasiswa Internship,Sandi
+28,Marsya,Institut Pertanian Bogor,Mahasiswa Internship,Marsya
+29,Capriandika,Institut Pertanian Bogor,Mahasiswa Internship,Capriandika
+30,Radit,SMK INFOKOM,Siswa Magang,Radit
+31,Ryu,SMK INFOKOM,Siswa Magang,Ryu
+32,Pak Nugroho,IT Planning,General Manager,Pak Nugroho
+
+(Single Source of Truth untuk metadata intern)

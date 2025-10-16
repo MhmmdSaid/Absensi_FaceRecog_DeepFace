@@ -2,13 +2,17 @@ import time
 import sys
 import os
 import psycopg2
+import psycopg2.extensions 
+import numpy as np         
 import shutil 
 import uuid 
 from pathlib import Path
-from datetime import date, timedelta 
+from datetime import date, timedelta, datetime
 import io
 import webbrowser 
 from typing import List, Optional, Dict 
+
+import pytz # <<< KRITIS: Import Pytz untuk Zona Waktu
 
 # --- IMPORTS SCHEDULER ---
 from apscheduler.schedulers.asyncio import AsyncIOScheduler 
@@ -16,7 +20,25 @@ from apscheduler.triggers.cron import CronTrigger
 # ---
 
 # Import gTTS library for automatic Text-to-Speech generation
-from gtts import gTTS 
+try:
+    from gtts import gTTS 
+except ImportError:
+    print("WARNING: gTTS library not found. Audio generation might fail.")
+    
+    # DEFINE MOCK CLASS DAN FUNGSI DUMMY DI SINI DENGAN INDENTASI YANG BENAR
+    class MockTTS:
+        """Kelas dummy untuk menggantikan gTTS jika tidak ada."""
+        def __init__(self, text, lang): 
+            self.text = text
+            self.lang = lang
+            
+        def save(self, path):
+            print(f"Mock TTS save: (No TTS library installed) Text: {self.text}")
+    
+    # Fungsi gTTS dummy yang mengembalikan MockTTS (Perbaikan Pylance)
+    def gTTS(text, lang='id'):
+        return MockTTS(text, lang)
+    
 # Import library FastAPI
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form 
 from starlette.requests import Request
@@ -32,10 +54,11 @@ except ImportError:
     DeepFace = None 
 
 # --- PATH & KONFIGURASI ---
+# Asumsi struktur: Root/backend/main.py
 PROJECT_ROOT = Path(__file__).resolve().parent.parent 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Impor fungsi dan konfigurasi dari file lain
+# Impor fungsi dan konfigurasi dari file lain (asumsi ada di backend/utils.py)
 try:
     from utils import extract_face_features, DISTANCE_THRESHOLD 
 except ImportError:
@@ -49,20 +72,23 @@ except ImportError:
 # Konfigurasi DB PostgreSQL
 # KRITIS: Ubah "localhost" menjadi nama service DB (misalnya, "db") jika di Docker Compose
 DB_HOST = "localhost" 
-DB_NAME = "vector_db"
+DB_NAME = "intern_attendance_db"
 DB_USER = "macbookpro" 
 DB_PASSWORD = "deepfacepass" 
 
 # FOLDER UNTUK GAMBAR
 CAPTURED_IMAGES_DIR = PROJECT_ROOT / "backend" / "captured_images" 
-FACES_DIR = PROJECT_ROOT / "data" / "dataset" 
+FACES_DIR = PROJECT_ROOT / "data" / "dataset" # KRITIS: Path Dataset
 FRONTEND_STATIC_DIR = PROJECT_ROOT / "frontend" 
 AUDIO_FILES_DIR = PROJECT_ROOT / "backend" / "generated_audio"
 
+# --- KONFIGURASI ZONA WAKTU ---
+local_tz = pytz.timezone('Asia/Jakarta') # <<< TAMBAH: Global Timezone (WIB)
+
 # --- KONFIGURASI SCHEDULER ---
 scheduler = None 
-DAILY_RESET_HOUR = 17 # Pukul 17 (5 sore) - Waktu custom untuk reset harian
-DAILY_RESET_MINUTE = 0 
+DAILY_RESET_HOUR = 1 # Pukul 17 (5 sore) - Waktu custom untuk reset harian
+DAILY_RESET_MINUTE = 22 
 # ---
 
 # --- INISIALISASI APLIKASI ---
@@ -74,7 +100,39 @@ app.mount("/images", StaticFiles(directory=str(CAPTURED_IMAGES_DIR), check_dir=T
 app.mount("/faces", StaticFiles(directory=str(FACES_DIR), check_dir=True), name="faces")
 
 
-# --- FUNGSI AUDIO GENERATION ---
+# --- FUNGSI UTILITY ---
+
+def get_current_wib_datetime() -> datetime:
+    """Mengembalikan objek datetime saat ini dengan zona waktu Asia/Jakarta."""
+    return datetime.now(local_tz)
+
+def format_time_to_hms(time_obj) -> str:
+    """
+    Mengubah objek datetime, date, atau string ISO 8601 menjadi string HH:MM:SS.
+    """
+    if not time_obj:
+        return "N/A"
+    
+    if isinstance(time_obj, datetime):
+        # Jika time_obj memiliki timezone, konversi ke waktu lokal dan format. 
+        if time_obj.tzinfo is not None and time_obj.tzinfo.utcoffset(time_obj) is not None:
+             time_obj = time_obj.astimezone(local_tz)
+        
+        return time_obj.strftime("%H:%M:%S")
+    elif isinstance(time_obj, str):
+        try:
+            # Asumsi string yang masuk adalah ISO 8601 dari DB (misal: "2025-10-16T18:01:29")
+            dt = datetime.fromisoformat(time_obj)
+            return dt.strftime("%H:%M:%S")
+        except ValueError:
+            # Jika gagal parse, kembalikan string aslinya
+            return str(time_obj) 
+    else:
+        # Untuk objek time/date lain, coba konversi ke string
+        try:
+            return time_obj.strftime("%H:%M:%S")
+        except AttributeError:
+             return str(time_obj)
 
 def generate_audio_file(filename: str, text: str):
     """Menghasilkan dan menyimpan file audio MP3 menggunakan gTTS jika belum ada."""
@@ -91,24 +149,107 @@ def generate_audio_file(filename: str, text: str):
     except Exception as e:
         print(f"❌ ERROR: Gagal generate file audio {filename}. Pastikan Anda memiliki koneksi internet: {e}")
         
+# --- LOGIKA VALIDASI ABSENSI KRITIS (Waktu WIB) ---
+
+# Definisikan Aturan Jam Kerja dari GM IT
+JADWAL_KERJA = {
+    # Menggunakan "Mahasiswa Internship" untuk kategori PKL/Program
+    "Mahasiswa Internship": { 
+        "MASUK_PALING_LAMBAT": "09:00:00", # Pkl dr jam 9
+        "PULANG_PALING_CEPAT": "15:00:00"  # sd 15.00
+    },
+    # Kategori Staff (Pak Nugroho) atau Karyawan
+    "Staff": { 
+        "MASUK_PALING_LAMBAT": "08:30:00", # 8.30 sd 17.30 (mengambil yang paling ketat)
+        "PULANG_PALING_CEPAT": "17:30:00"
+    },
+    "General Manager": { # Jika ada kategori GM (seperti Pak Nugroho)
+        "MASUK_PALING_LAMBAT": "08:30:00",
+        "PULANG_PALING_CEPAT": "17:30:00"
+    },
+    # Default untuk kategori lain yang tidak terdefinisi
+    "DEFAULT": {
+        "MASUK_PALING_LAMBAT": "09:00:00",
+        "PULANG_PALING_CEPAT": "15:00:00"
+    }
+}
+
+def check_attendance_status(kategori: str, type_absensi: str, log_time: datetime) -> str:
+    """Menentukan status absensi (Tepat Waktu/Terlambat/Pulang Cepat) berdasarkan kategori dan waktu log."""
+    
+    # Ambil aturan berdasarkan kategori, fallback ke DEFAULT
+    aturan = JADWAL_KERJA.get(kategori, JADWAL_KERJA.get(kategori.replace(' ', '_'), JADWAL_KERJA["DEFAULT"]))
+    
+    # Ambil waktu jam-menit-detik saat ini dalam format string HH:MM:SS
+    # Karena log_time adalah objek datetime yang sadar WIB, ini aman
+    current_time_str = log_time.strftime("%H:%M:%S")
+
+    if type_absensi == 'IN':
+        target_time = aturan["MASUK_PALING_LAMBAT"]
+        
+        # Jika waktu saat ini SAMA DENGAN atau LEBIH AWAL dari batas
+        if current_time_str <= target_time:
+            return "Tepat Waktu"
+        else:
+            return "Terlambat" # Diatas Jam pulang tsb kategori terlambat
+            
+    elif type_absensi == 'OUT':
+        target_time = aturan["PULANG_PALING_CEPAT"]
+        
+        # Jika waktu saat ini SAMA DENGAN atau LEBIH AKHIR dari batas
+        if current_time_str >= target_time:
+            return "Tepat Waktu"
+        else:
+            return "Pulang Cepat"
+            
+    return "N/A"
+        
 # --- FUNGSI DATABASE HELPERS (POSTGRESQL) ---
 
 def connect_db():
-    """Membuat koneksi ke Database Vektor/Log (PostgreSQL)."""
+    """Membuat koneksi ke Database Vektor/Log (PostgreSQL) dan mendaftarkan tipe vector."""
+    conn = None
     try:
         # Menghubungkan ke PostgreSQL
-        return psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD)
+        conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD)
+        
+        # 1. Cari OID tipe 'vector'
+        with conn.cursor() as cur:
+            cur.execute("SELECT oid FROM pg_type WHERE typname = 'vector'")
+            vector_oid = cur.fetchone()[0]
+        
+        # 2. Buat fungsi konversi (membersihkan kurung siku atau kurung kurawal)
+        def cast_vector(data, cur):
+            if data is None:
+                return None
+            # Membersihkan kurung kurawal {} atau kurung siku []
+            cleaned_data = data.strip('{}[]')
+            return np.array([float(x.strip()) for x in cleaned_data.split(',')])
+        
+        # 3. Daftarkan tipe data vector ke koneksi ini
+        psycopg2.extensions.register_type(
+            psycopg2.extensions.new_type((vector_oid,), 'vector', cast_vector), 
+            conn
+        )
+        # --- END REGISTRASI KRITIS ---
+        
+        return conn
     except psycopg2.Error as e:
         print(f"❌ Gagal koneksi ke Database PostgreSQL: {e}")
+        if conn:
+            conn.close()
         # Mengubah Exception untuk penanganan startup
         raise Exception("Database PostgreSQL tidak terhubung/konfigurasi salah.")
 
 def initialize_db():
-    """Memastikan tabel interns, attendance_logs, dan intern_embeddings ada di PostgreSQL."""
+    """Memastikan tabel interns, attendance_logs, intern_embeddings, dan intern_centroids ada."""
     conn = None
     try:
         conn = connect_db()
         cursor = conn.cursor()
+        
+        # Pastikan ekstensi vector ada
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;") 
         
         # 1. Buat Tabel interns
         cursor.execute("""
@@ -120,8 +261,8 @@ def initialize_db():
             );
         """)
         
-        # 2. Buat Tabel attendance_logs (PERUBAHAN SKEMA: Tambah kolom TYPE)
-        cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;") 
+        # 2. Buat Tabel attendance_logs
+        # KRITIS: absent_at sekarang diisi eksplisit dengan waktu WIB dari Python
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS attendance_logs (
                 log_id SERIAL PRIMARY KEY,
@@ -130,12 +271,12 @@ def initialize_db():
                 instansi TEXT,
                 kategori TEXT,  
                 image_url TEXT, 
-                absent_at TIMESTAMP WITHOUT TIME ZONE DEFAULT LOCALTIMESTAMP,
+                absent_at TIMESTAMP WITHOUT TIME ZONE,
                 type TEXT NOT NULL DEFAULT 'IN' -- Kolom Baru untuk IN/OUT
             );
         """)
         
-        # 3. Buat Tabel intern_embeddings
+        # 3. Buat Tabel intern_embeddings (Data Vektor Mentah)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS intern_embeddings (
                 id SERIAL PRIMARY KEY,
@@ -148,39 +289,26 @@ def initialize_db():
             );
         """)
         
-        # 4. DATA MASSAL 31 INTERNS (Sama seperti sebelumnya)
+        # 4. Buat Tabel intern_centroids (Data Vektor Rata-Rata)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS intern_centroids (
+                id SERIAL PRIMARY KEY,
+                intern_id INTEGER UNIQUE REFERENCES interns(id),
+                name TEXT NOT NULL UNIQUE,
+                instansi TEXT,
+                kategori TEXT,
+                embedding VECTOR(512) NOT NULL 
+            );
+        """)
+        
+        # 5. DATA MASSAL 31 INTERNS (Hanya memastikan nama interns sudah ada)
         all_interns_data = [
             (1, 'Said', 'Universitas Muhammadiyah Surabaya', 'Mahasiswa Internship'),
             (2, 'Muarif', 'Universitas Muhammadiyah Surabaya', 'Mahasiswa Internship'),
             (3, 'Nani', 'Universitas Muhammadiyah Surabaya', 'Mahasiswa Internship'),
             (4, 'Vinda', 'Universitas Muhammadiyah Surabaya', 'Mahasiswa Internship'),
             (5, 'Harun', 'Universitas Pakuan Bogor', 'Mahasiswa Internship'),
-            (6, 'Isra', 'Universitas Pakuan Bogor', 'Mahasiswa Internship'),
-            (7, 'Ikhsan', 'Universitas Pakuan Bogor', 'Mahasiswa Internship'),
-            (8, 'Nabila', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (9, 'Shandy', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (10, 'Athallah', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (11, 'Lilla', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (12, 'Raffy Jo', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (13, 'Tia', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (14, 'Ferin', 'Politeknik Negeri Malang', 'Mahasiswa Internship'),
-            (15, 'Akmal', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (16, 'Iwan', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (17, 'Aditya', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (18, 'Nayla', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (19, 'Rafa', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (20, 'Rahma', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (21, 'Thalia', 'Politeknik Negeri Jakarta', 'Mahasiswa Internship'),
-            (22, 'Aufar', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (23, 'Adan', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (24, 'Abdul', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (25, 'Oktori', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (26, 'Sandi', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (27, 'Marsya', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (28, 'Capriandika', 'Institut Pertanian Bogor', 'Mahasiswa Internship'),
-            (29, 'Radit', 'SMK INFOKOM', 'Siswa Magang'),
-            (30, 'Ryu', 'SMK INFOKOM', 'Siswa Magang'),
-            (31, 'Pak Nugroho', 'General Manager', 'Staff'),
+            (31, 'Pak Nugroho', 'General Manager', 'Staff'), # Kategori 'General Manager'
         ]
         
         data_to_insert = [(item[1], item[2], item[3]) for item in all_interns_data]
@@ -225,6 +353,7 @@ def get_or_create_intern(name: str, instansi: str = "Intern", kategori: str = "U
             kategori_registered = result[2]
             return intern_id, instansi_registered, kategori_registered 
         else:
+            # Jika nama baru, instansi dan kategori diisi dengan default "Intern"/"Unknown"
             cursor.execute(
                 "INSERT INTO interns (name, instansi, kategori) VALUES (%s, %s, %s) RETURNING id",
                 (name, instansi, kategori)
@@ -261,7 +390,7 @@ def get_latest_attendance(intern_name: str) -> Optional[Dict[str, str]]:
         )
         result = cursor.fetchone()
         if result:
-            # Mengembalikan absent_at sebagai ISO format string
+            # Mengembalikan absent_at sebagai ISO format string (biar bisa di-parse di format_time_to_hms)
             return {"name": result[0], "type": result[1], "absent_at": result[2].isoformat()}
         return None
     except Exception as e:
@@ -281,10 +410,14 @@ def log_attendance(intern_name: str, instansi: str, kategori: str, image_url: st
         conn = connect_db()
         cursor = conn.cursor()
         
+        # <<< PERUBAHAN KRITIS: Menggunakan waktu WIB eksplisit dari Python >>>
+        # Kita menggunakan replace(tzinfo=None) agar sesuai dengan kolom TIMESTAMP WITHOUT TIME ZONE
+        wib_time = get_current_wib_datetime().replace(tzinfo=None) 
+        
         # Mencatat log dengan kolom type
         cursor.execute(
-            "INSERT INTO attendance_logs (intern_id, intern_name, instansi, kategori, image_url, absent_at, type) VALUES (%s, %s, %s, %s, %s, LOCALTIMESTAMP, %s)",
-            (intern_id, intern_name, instansi, kategori, image_url, type_absensi)
+            "INSERT INTO attendance_logs (intern_id, intern_name, instansi, kategori, image_url, absent_at, type) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (intern_id, intern_name, instansi, kategori, image_url, wib_time, type_absensi) # Mengganti LOCALTIMESTAMP dengan wib_time
         )
         conn.commit()
         return intern_id
@@ -322,13 +455,13 @@ def reset_attendance_logs():
             conn.close()
 
 
-# --- HOOK UNTUK MEMBUKA BROWSER OTOMATIS & SCHEDULING ---
+# --- HOOK UNTUK MEMBUKA BROWSER OTOMATIS & SCHEDULING (PERMINTAAN USER) ---
 
-@app.on_event("startup")
+@app.on_event("startup") 
 async def startup_event():
     """Melakukan inisialisasi DB, menjadwalkan reset, dan membuka browser saat startup."""
     try:
-        initialize_db() # Inisialisasi DB PostgreSQL
+        initialize_db() 
     except Exception as e:
         print(f"❌ Gagal menjalankan aplikasi karena inisialisasi DB gagal: {e}")
         sys.exit(1)
@@ -337,7 +470,7 @@ async def startup_event():
     global scheduler
     scheduler = AsyncIOScheduler()
     
-    # Tambahkan tugas reset harian pada jam 17:00
+    # Tambahkan tugas reset harian pada jam 17:00 (Sesuai permintaan user)
     scheduler.add_job(
         reset_attendance_logs, 
         CronTrigger(hour=DAILY_RESET_HOUR, minute=DAILY_RESET_MINUTE),
@@ -358,10 +491,45 @@ async def startup_event():
         print(f"⚠️ Peringatan: Gagal membuka browser otomatis: {e}")
 
 
+# --- ENDPOINTS DATA COLLECTOR ---
+
+@app.post("/upload_dataset")
+async def upload_dataset(name: str = Form(...), instansi: str = Form("Intern"), kategori: str = Form("Unknown"), file: UploadFile = File(...)):
+    """Menerima file gambar, menyimpan di folder dataset, dan mendaftarkan intern jika belum ada."""
+    
+    # 1. Validasi Input dan Pembersihan Nama
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Nama tidak boleh kosong.")
+    
+    # 2. Dapatkan atau Buat Intern ID
+    try:
+        intern_id, instansi_reg, kategori_reg = get_or_create_intern(clean_name, instansi, kategori)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal memproses intern ID: {e}")
+
+    # 3. Simpan File Gambar ke Folder Dataset (FACES_DIR / NAMA INTERN)
+    face_folder = FACES_DIR / clean_name
+    os.makedirs(face_folder, exist_ok=True)
+    
+    # Gunakan nama file yang dikirim dari frontend (misal: 1.jpg)
+    file_path = face_folder / file.filename 
+    
+    try:
+        image_bytes = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(image_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan file gambar: {e}")
+
+    print(f"✅ FILE DATASET TERSIMPAN: {clean_name} - {file.filename} di {file_path}")
+    
+    return {"status": "success", "message": f"Gambar tersimpan di folder {clean_name}."}
+
+
 # --- ENDPOINTS ABSENSI ---
 
 @app.post("/recognize")
-# KRITIS: Sekarang menerima parameter type_absensi dari Form ('IN' atau 'OUT')
 async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(...)): 
     """Endpoint utama untuk deteksi wajah dan pencocokan cepat, menerima jenis absensi eksplisit."""
     start_time = time.time()
@@ -384,17 +552,19 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
     
     new_embedding = emb_list[0] 
 
-    # 2. PENCARIAN VEKTOR DI DATABASE VEKTOR (POSTGRESQL)
+    # 2. PENCARIAN VEKTOR DI DATABASE CENTROID (POSTGRESQL)
     conn = None
     try:
         conn = connect_db()
         cursor = conn.cursor()
         
+        # Pastikan format vektor menggunakan kurung siku []
         vector_string = "[" + ",".join(map(str, new_embedding)) + "]"
 
+        # KRITIS: Menggunakan intern_centroids
         cursor.execute(f"""
             SELECT name, instansi, kategori, embedding <=> '{vector_string}'::vector AS distance
-            FROM intern_embeddings
+            FROM intern_centroids
             ORDER BY distance ASC
             LIMIT 1
         """)
@@ -408,25 +578,26 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
             # 3. VERIFIKASI AMBANG BATAS AKURASI
             if distance <= DISTANCE_THRESHOLD:
                 
-                # --- LOGIKA PENGECEKAN DUPLIKAT KHUSUS (Berdasarkan Tipe yang Dikirim) ---
-                latest_log = get_latest_attendance(name)
+                # --- LOGIKA PENGECEKAN DUPLIKAT KHUSUS ---
+                latest_log = get_latest_attendance(name) # Mengembalikan 'absent_at' sebagai ISO string
                 
                 if latest_log and latest_log['type'] == type_absensi:
-                    # Jika log terakhir (apapun jamnya) sama dengan type absensi yang dikirim (misal: IN vs IN)
+                    # Absensi Duplikat
                     print(f"✅ DUPLIKAT ABSENSI: {name} | Sudah Absen {type_absensi} Hari Ini.")
                     
                     audio_filename = f"duplicate_{type_absensi.lower()}_{name.replace(' ', '_')}.mp3"
                     
                     if type_absensi == 'IN':
                         message_text = f"{name}, Anda sudah Absen Masuk hari ini."
-                    else: # 'OUT'
-                        message_text = f"{name}, Anda sudah Absen Pulang hari ini. Sampai jumpa besok."
+                    else: 
+                        message_text = f"Absensi Pulang Anda sudah dicatat hari ini. Sampai jumpa besok."
                         
                     generate_audio_file(audio_filename, message_text)
                     
                     # Mengambil waktu log terakhir
-                    log_time_display = latest_log['absent_at'].split('T')[-1].split('+')[0]
+                    log_time_display = format_time_to_hms(latest_log['absent_at']) 
                     
+                    # Logika Duplikat TIDAK perlu status absensi, karena hanya mengulang info sebelumnya
                     return {"status": "duplicate", "name": name, "instansi": instansi, "kategori": kategori, "distance": f"{distance:.4f}", "latency": f"{elapsed_time:.2f}s", "track_id": audio_filename, "type": type_absensi, "log_time": log_time_display} 
                 
                 # --- LOGIKA PENYIMPANAN GAMBAR ABSENSI ---
@@ -446,20 +617,34 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
                 image_url_for_db = temp_image_url
                 # --- END LOGIKA PENYIMPANAN GAMBAR ABSENSI ---
                 
-                # Absensi Berhasil: Catat ke DB (menggunakan type_absensi yang diterima dari frontend)
+                # Absensi Berhasil: Catat ke DB
                 log_attendance(name, instansi, kategori, image_url_for_db, type_absensi) 
                 
+                # Waktu Absensi saat ini untuk respons (WIB)
+                current_log_time = get_current_wib_datetime() 
+                log_time_display = format_time_to_hms(current_log_time) 
+                
+                # <<< TAMBAH: Menentukan Status Absensi >>>
+                attendance_status_result = check_attendance_status(kategori, type_absensi, current_log_time) 
+                # ----------------------------------------
+                
                 if type_absensi == 'IN':
-                    message_text = f"Selamat datang, {name}. Absensi masuk berhasil dicatat."
-                else: # 'OUT'
-                    message_text = f"Terima kasih, {name}. Absensi keluar berhasil dicatat. Sampai jumpa besok."
+                    if attendance_status_result == "Terlambat":
+                        message_text = f"Maaf, {name}. Absensi masuk Anda dicatat sebagai **Terlambat**."
+                    else:
+                        message_text = f"Selamat datang, {name}. Absensi masuk berhasil dicatat."
+                else: 
+                    if attendance_status_result == "Pulang Cepat":
+                        message_text = f"Peringatan, {name}. Absensi keluar Anda dicatat sebagai **Pulang Cepat**."
+                    else:
+                        message_text = f"Terima kasih, {name}. Absensi keluar berhasil dicatat. Sampai jumpa besok."
                     
-                print(f"✅ DETEKSI BERHASIL: {name} ({type_absensi}) | Jarak: {distance:.4f} | Latensi: {elapsed_time:.2f}s")
+                print(f"✅ DETEKSI BERHASIL: {name} ({type_absensi}) | Status: {attendance_status_result} | Jarak: {distance:.4f} | Latensi: {elapsed_time:.2f}s")
                 
                 audio_filename = f"log_{clean_name}_{type_absensi.lower()}.mp3"
                 generate_audio_file(audio_filename, message_text)
                 
-                return {"status": "success", "name": name, "instansi": instansi, "kategori": kategori, "distance": f"{distance:.4f}", "latency": f"{elapsed_time:.2f}s", "track_id": audio_filename, "type": type_absensi, "image_url": image_url_for_db}
+                return {"status": "success", "name": name, "instansi": instansi, "kategori": kategori, "distance": f"{distance:.4f}", "latency": f"{elapsed_time:.2f}s", "track_id": audio_filename, "type": type_absensi, "image_url": image_url_for_db, "log_time": log_time_display, "attendance_status": attendance_status_result} # <<< BARU: attendance_status
             else:
                 # ⚠️ Tidak Dikenali (Jarak Terlalu Jauh)
                 print(f"❌ DETEKSI GAGAL: Jarak Terlalu Jauh ({distance:.4f}) | Latensi: {elapsed_time:.2f}s")
@@ -467,7 +652,7 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
                 return {"status": "unrecognized", "message": "Data Wajah Anda Belum Terdaftar Di Sistem", "track_id": "S003.mp3", "image_url": image_url_for_db}
 
         else:
-            # Database Vektor kosong
+            # Database Vektor kosong (intern_centroids)
             generate_audio_file("S003.mp3", "Data wajah Anda belum terdaftar di sistem. Mohon hubungi admin.")
             return {"status": "error", "message": "Sistem kosong, lakukan indexing.", "track_id": "S003.mp3", "image_url": image_url_for_db}
 
@@ -481,7 +666,7 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
 
 # --- ENDPOINTS DATA (data.html) ---
 
-@app.get("/attendance/today") # Digunakan oleh data.html
+@app.get("/attendance/today") 
 async def get_today_attendance():
     """Mendapatkan daftar log absensi unik terakhir hari ini (untuk data.html) dari PostgreSQL."""
     conn = None
@@ -509,20 +694,26 @@ async def get_today_attendance():
         attendance_list = []
         for name, instansi, kategori, time_obj, image_url, log_type in results: 
             
-            # Tentukan status berdasarkan log_type
+            # Mengambil waktu objek asli (yang sudah dalam WIB)
+            log_datetime_wib = time_obj 
+            
+            # Tentukan status Kepatuhan Waktu
+            status_kepatuhan = check_attendance_status(kategori, log_type, log_datetime_wib) 
+            
+            # Tentukan status display di tabel
             if log_type == 'IN':
-                status_display = "MASUK"
+                status_display = f"MASUK ({status_kepatuhan})"
             elif log_type == 'OUT':
-                status_display = "PULANG"
+                status_display = f"PULANG ({status_kepatuhan})"
             else:
-                status_display = "N/A" # Seharusnya tidak terjadi
+                status_display = "N/A" 
 
             attendance_list.append({
                 "name": name,
                 "instansi": instansi,
                 "kategori": kategori,
-                "status": status_display, # Kolom status baru
-                "timestamp": time_obj.isoformat(), 
+                "status": status_display, # <<< PERUBAHAN: Status sekarang berisi kepatuhan waktu
+                "timestamp": format_time_to_hms(time_obj), 
                 "distance": 0.0000, 
                 "image_path": image_url 
             })
@@ -540,7 +731,7 @@ async def get_today_attendance():
 
 @app.post("/reset_absensi") 
 async def reset_daily_attendance():
-    """Menghapus semua log absensi yang tercatat untuk hari ini (Manual Trigger) dari PostgreSQL."""
+    """Menghapus semua log absensi yang tercatat untuk hari ini (Manual Trigger)."""
     try:
         deleted_count = reset_attendance_logs()
         
@@ -564,17 +755,20 @@ async def delete_face(name: str):
         conn = connect_db()
         cursor = conn.cursor()
         
-        # 1. Hapus dari Database Vektor
+        # 1. Hapus dari Centroid
+        cursor.execute("DELETE FROM intern_centroids WHERE name = %s", (name,))
+        
+        # 2. Hapus dari Database Vektor Mentah
         cursor.execute("DELETE FROM intern_embeddings WHERE name = %s", (name,))
         deleted_count = cursor.rowcount
         conn.commit()
 
-        # 2. Hapus file gambar dari folder FACES_DIR
+        # 3. Hapus file gambar dari folder FACES_DIR
         face_folder = FACES_DIR / name
         file_deleted = False
         if face_folder.exists() and face_folder.is_dir():
             try:
-                shutil.rmtree(face_folder)
+                shutil.rmtree(face_folder) 
                 file_deleted = True
             except Exception as e:
                 print(f"❌ Gagal menghapus folder file wajah: {e}")
@@ -598,11 +792,13 @@ async def delete_face(name: str):
 # --- ENDPOINTS LAINNYA ---
 @app.post("/reload_db") 
 async def reload_db():
+    """Simulasi muat ulang/sinkronisasi DB (Asumsi bahwa proses indexing dilakukan di script terpisah)."""
     conn = None
     try:
         conn = connect_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(DISTINCT name) FROM intern_embeddings")
+        # Menggunakan intern_centroids untuk hitungan karena ini yang digunakan untuk pencarian
+        cursor.execute("SELECT COUNT(DISTINCT name) FROM intern_centroids")
         total_unique_faces = cursor.fetchone()[0]
         
         print(f"✅ RELOAD SIMULASI BERHASIL. Total {total_unique_faces} wajah unik terindeks.")
@@ -618,11 +814,13 @@ async def reload_db():
 
 @app.get("/list_faces") 
 async def list_registered_faces():
+    """Mengambil daftar nama dan jumlah gambar yang sudah terdaftar."""
     conn = None
     try:
         conn = connect_db()
         cursor = conn.cursor()
         
+        # Menggunakan intern_embeddings untuk menghitung total gambar per wajah
         cursor.execute("""
             SELECT name, COUNT(*) 
             FROM intern_embeddings
@@ -643,5 +841,5 @@ async def list_registered_faces():
         if conn:
             conn.close()
             
-# --- KRITIS: APP.MOUNT INI HARUS DI POSISI TERAKHIR (FALLBACK) ---
+# --- APP.MOUNT INI HARUS DI POSISI TERAKHIR (FALLBACK) ---
 app.mount("/", StaticFiles(directory=str(FRONTEND_STATIC_DIR)), name="frontend")
