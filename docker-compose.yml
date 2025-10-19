@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Service 1: Database (PostgreSQL + pgvector)
+  db:
+    image: ankane/pgvector
+    environment:
+      POSTGRES_USER: macbookpro
+      POSTGRES_PASSWORD: deepfacepass
+      POSTGRES_DB: intern_attendance_db
+    volumes:
+      # Ini akan menyimpan data database Anda secara permanen
+      - ./postgres-data:/var/lib/postgresql/data
+    restart: always
+
+  # Service 2: API (Python/FastAPI kita)
+  api:
+    build: .
+    ports:
+      # Memetakan port 8000 di PC ke port 8000 di container
+      - "8000:8000"
+    environment:
+      # KRITIS: Beri tahu Python cara menemukan database.
+      # 'db' adalah nama service di atas.
+      DB_HOST: db
+      DB_USER: macbookpro
+      DB_PASSWORD: deepfacepass
+      DB_NAME: intern_attendance_db
+    volumes:
+      # Ini akan "mirror" kode lokal Anda ke container,
+      # jadi perubahan kode akan langsung terlihat
+      - .:/app
+    depends_on:
+      - db  # Bilang ke Docker: "Nyalakan DB dulu, baru API"
+    restart: always

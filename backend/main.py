@@ -71,10 +71,10 @@ except ImportError:
 
 # Konfigurasi DB PostgreSQL
 # KRITIS: Ubah "localhost" menjadi nama service DB (misalnya, "db") jika di Docker Compose
-DB_HOST = "localhost" 
-DB_NAME = "intern_attendance_db"
-DB_USER = "macbookpro" 
-DB_PASSWORD = "deepfacepass" 
+DB_HOST = os.getenv("DB_HOST", "localhost") 
+DB_NAME = os.getenv("DB_NAME", "intern_attendance_db")
+DB_USER = os.getenv("DB_USER", "macbookpro") 
+DB_PASSWORD = os.getenv("DB_PASSWORD", "deepfacepass") 
 
 # FOLDER UNTUK GAMBAR
 CAPTURED_IMAGES_DIR = PROJECT_ROOT / "backend" / "captured_images" 
