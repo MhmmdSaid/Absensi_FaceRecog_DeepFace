@@ -6,6 +6,27 @@
     <title>Absensi Wajah - DeepFace</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css" />
+
+    <style>
+      .video-container {
+        position: relative;
+        /* Ukuran akan diatur oleh video element di bawah */
+      }
+      #videoElement,
+      #overlayCanvas {
+        /* Pastikan video dan canvas memiliki ukuran yang sama */
+        width: 100%;
+        max-width: 640px; /* Samakan dengan resolusi ideal kamera */
+        height: auto;
+        border-radius: 8px;
+      }
+      #overlayCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none; /* Biar tidak menghalangi video */
+      }
+    </style>
   </head>
 
   <body class="layout-body">
@@ -47,6 +68,8 @@
       <div id="videoContainer" class="video-container">
         <video id="videoElement" autoplay muted playsinline></video>
         <canvas id="canvasElement" style="display: none"></canvas>
+        
+        <canvas id="overlayCanvas"></canvas>
       </div>
 
       <div class="btn-group">
@@ -75,212 +98,19 @@
       &copy; 2025 Telkomsat Bogor
     </footer>
 
-    <script>
-      const API_BASE_URL = "http://127.0.0.1:8000";
-      const videoElement = document.getElementById("videoElement");
-      const canvasElement = document.getElementById("canvasElement");
-      const statusArea = document.getElementById("statusArea");
-      const absenMasukBtn = document.getElementById("absenMasukBtn");
-      const absenPulangBtn = document.getElementById("absenPulangBtn");
-      const resultCard = document.getElementById("resultCard");
-      const resultTitle = document.getElementById("resultTitle");
-      const resultCardBody = document.getElementById("resultCardBody");
-      
-      let stream = null;
-      let isProcessing = false;
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+      crossorigin="anonymous"
+    ></script>
 
-      function updateStatus(message, type = "info") {
-        const map = {
-          success: "status-area bg-green-100 text-green-700",
-          error: "status-area bg-red-100 text-red-700",
-          loading: "status-area bg-blue-100 text-blue-700",
-          info: "status-area bg-gray-100 text-gray-700",
-        };
-        statusArea.className = map[type] || "status-area";
-        statusArea.innerHTML = message;
-      }
-
-      async function startCamera() {
-        try {
-          // Tambahkan resolusi yang disukai
-          const constraints = { 
-            video: { 
-              width: { ideal: 640 }, 
-              height: { ideal: 480 },
-              facingMode: "user" // Menggunakan kamera depan
-            } 
-          };
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          videoElement.srcObject = stream;
-          updateStatus("Kamera aktif. Silakan lakukan absensi.", "success");
-        } catch (err) {
-          console.error("Error mengakses kamera:", err);
-          updateStatus("Gagal mengakses kamera. Pastikan izin kamera diberikan.", "error");
-        }
-      }
-
-      function stopCamera() {
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop());
-          stream = null;
-        }
-      }
-
-      function captureImage() {
-        if (!stream) {
-          updateStatus("Kamera tidak aktif.", "error");
-          return null;
-        }
-
-        canvasElement.width = videoElement.videoWidth;
-        canvasElement.height = videoElement.videoHeight;
-        const context = canvasElement.getContext("2d");
-        
-        // Cerminkan gambar secara horizontal (mirroring) karena kamera depan
-        context.translate(canvasElement.width, 0);
-        context.scale(-1, 1);
-        context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
-        
-        // Reset transformasi
-        context.setTransform(1, 0, 0, 1, 0, 0);
-        
-        return new Promise((resolve, reject) => {
-          // Mengubah canvas menjadi Blob JPEG
-          canvasElement.toBlob(
-            (blob) => {
-              if (blob) {
-                resolve(blob);
-              } else {
-                reject(new Error("Gagal membuat Blob dari Canvas."));
-              }
-            },
-            "image/jpeg",
-            0.9
-          ); // Kualitas 90%
-        });
-      }
-
-      async function performAbsensi(typeAbsensi) {
-        if (isProcessing) return;
-
-        isProcessing = true;
-        resultCard.classList.add("hidden");
-        absenMasukBtn.disabled = true;
-        absenPulangBtn.disabled = true;
-
-        const actionText = typeAbsensi === 'IN' ? 'Masuk' : 'Pulang';
-        updateStatus(`Sedang memproses Absensi ${actionText}... Mohon tunggu.`, "loading");
-        
-        try {
-          const imageBlob = await captureImage();
-          if (!imageBlob) {
-            updateStatus("Gagal mengambil gambar. Coba lagi.", "error");
-            isProcessing = false;
-            absenMasukBtn.disabled = false;
-            absenPulangBtn.disabled = false;
-            return;
-          }
-
-          const formData = new FormData();
-          formData.append("file", imageBlob, "capture.jpg");
-          formData.append("type_absensi", typeAbsensi);
-
-          const response = await fetch(`${API_BASE_URL}/recognize`, {
-            method: "POST",
-            body: formData,
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-          handleAbsensiResult(data);
-        } catch (error) {
-          console.error("Error Absensi:", error);
-          updateStatus(`Gagal terhubung ke server atau memproses absensi: ${error.message}`, "error");
-        } finally {
-          isProcessing = false;
-          absenMasukBtn.disabled = false;
-          absenPulangBtn.disabled = false;
-        }
-      }
-
-      function handleAbsensiResult(data) {
-        const audioPlayer = new Audio();
-        
-        // Tampilkan result card
-        resultCard.classList.remove("hidden");
-        resultCardBody.innerHTML = '';
-        
-        const typeDisplay = data.type === 'IN' ? 'MASUK' : 'PULANG';
-
-        if (data.status === 'success') {
-          const distanceDisplay = data.distance ? `(${data.distance} - Akurat)` : 'N/A';
-          
-          // <<< PERUBAHAN KRITIS: Ambil status waktu baru >>>
-          const attendanceStatus = data.attendance_status; 
-          const statusClass = attendanceStatus === 'Terlambat' || attendanceStatus === 'Pulang Cepat' ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
-          // ------------------------------------------------
-
-          resultTitle.textContent = `Absensi ${typeDisplay} Berhasil!`;
-          resultTitle.className = 'result-header text-green-700';
-          updateStatus(`Absensi ${typeDisplay} Berhasil! Selamat ${data.name}.`, "success");
-          
-          resultCardBody.innerHTML = `
-            <tr><td>Nama</td><td>:</td><td class="font-semibold">${data.name}</td></tr>
-            <tr><td>Instansi</td><td>:</td><td>${data.instansi}</td></tr>
-            <tr><td>Kategori</td><td>:</td><td>${data.kategori}</td></tr>
-            <tr><td>Waktu Absen</td><td>:</td><td>${data.log_time} WIB</td></tr>
-            <tr><td>**Status Waktu**</td><td>:</td><td><span class="${statusClass}">${attendanceStatus}</span></td></tr>
-            <tr><td>Jarak Vektor</td><td>:</td><td>${distanceDisplay}</td></tr>
-            <tr><td>Latensi</td><td>:</td><td>${data.latency}</td></tr>
-            ${data.image_url ? `<tr><td>Foto Log</td><td>:</td><td><a href="${API_BASE_URL}${data.image_url}" target="_blank" class="text-blue-500 hover:text-blue-700">Lihat Foto</a></td></tr>` : ''}
-          `;
-
-        } else if (data.status === 'duplicate') {
-          // Handle duplikat absensi (sudah IN/OUT)
-          resultTitle.textContent = `Absensi ${typeDisplay} Duplikat`;
-          resultTitle.className = 'result-header text-yellow-700';
-          updateStatus(`Absensi ${typeDisplay} Anda sudah tercatat hari ini.`, "info");
-          
-          resultCardBody.innerHTML = `
-            <tr><td>Nama</td><td>:</td><td class="font-semibold">${data.name}</td></tr>
-            <tr><td>Waktu Log Terakhir</td><td>:</td><td>${data.log_time} WIB</td></tr>
-            <tr><td>Pesan</td><td>:</td><td>Anda sudah Absen ${typeDisplay} hari ini.</td></tr>
-          `;
-
-        } else if (data.status === 'unrecognized') {
-          // Handle wajah tidak dikenal
-          resultTitle.textContent = "Gagal: Wajah Tidak Dikenal";
-          resultTitle.className = 'result-header text-red-700';
-          updateStatus(data.message || "Data Wajah Tidak Dikenal. Hubungi Admin.", "error");
-
-          resultCardBody.innerHTML = `
-            <tr><td>Pesan Sistem</td><td>:</td><td>${data.message || 'Wajah tidak cocok dengan data terdaftar.'}</td></tr>
-          `;
-
-        } else {
-          // Handle error umum
-          resultTitle.textContent = "Kesalahan Proses Absensi";
-          resultTitle.className = 'result-header text-red-700';
-          updateStatus(data.message || "Kesalahan server terjadi.", "error");
-        }
-
-        // Putar audio jika ada track_id
-        if (data.track_id) {
-          audioPlayer.src = `${API_BASE_URL}/audio/${data.track_id}`;
-          audioPlayer.play().catch(e => console.error("Gagal memutar audio:", e));
-        }
-      }
-
-      window.onload = () => {
-        startCamera();
-        absenMasukBtn.addEventListener("click", () => performAbsensi("IN"));
-        absenPulangBtn.addEventListener("click", () => performAbsensi("OUT"));
-      };
-
-      window.onbeforeunload = stopCamera;
-    </script>
+    <script src="main.js"></script>
   </body>
 </html>

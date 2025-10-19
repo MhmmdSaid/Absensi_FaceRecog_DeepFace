@@ -3,7 +3,7 @@ import sys
 import os
 import psycopg2
 import psycopg2.extensions 
-import numpy as np         
+import numpy as np
 import shutil 
 import uuid 
 from pathlib import Path
@@ -87,8 +87,8 @@ local_tz = pytz.timezone('Asia/Jakarta') # <<< TAMBAH: Global Timezone (WIB)
 
 # --- KONFIGURASI SCHEDULER ---
 scheduler = None 
-DAILY_RESET_HOUR = 1 # Pukul 17 (5 sore) - Waktu custom untuk reset harian
-DAILY_RESET_MINUTE = 22 
+DAILY_RESET_HOUR = 00 # Pukul 18 (6 sore) - Waktu custom untuk reset harian
+DAILY_RESET_MINUTE = 00 
 # ---
 
 # --- INISIALISASI APLIKASI ---
@@ -630,12 +630,12 @@ async def recognize_face(file: UploadFile = File(...), type_absensi: str = Form(
                 
                 if type_absensi == 'IN':
                     if attendance_status_result == "Terlambat":
-                        message_text = f"Maaf, {name}. Absensi masuk Anda dicatat sebagai **Terlambat**."
+                        message_text = f"Maaf, {name}. Absensi masuk Anda dicatat sebagai Terlambat."
                     else:
                         message_text = f"Selamat datang, {name}. Absensi masuk berhasil dicatat."
                 else: 
                     if attendance_status_result == "Pulang Cepat":
-                        message_text = f"Peringatan, {name}. Absensi keluar Anda dicatat sebagai **Pulang Cepat**."
+                        message_text = f"Peringatan, {name}. Absensi keluar Anda dicatat sebagai Pulang Cepat."
                     else:
                         message_text = f"Terima kasih, {name}. Absensi keluar berhasil dicatat. Sampai jumpa besok."
                     
