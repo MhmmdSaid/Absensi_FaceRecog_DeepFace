@@ -71,7 +71,7 @@ except ImportError:
 
 # Konfigurasi DB PostgreSQL
 # KRITIS: Ubah "localhost" menjadi nama service DB (misalnya, "db") jika di Docker Compose
-DB_HOST = os.getenv("DB_HOST", "localhost") 
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1:5435")
 DB_NAME = os.getenv("DB_NAME", "intern_attendance_db")
 DB_USER = os.getenv("DB_USER", "macbookpro") 
 DB_PASSWORD = os.getenv("DB_PASSWORD", "deepfacepass") 
@@ -210,13 +210,18 @@ def connect_db():
     """Membuat koneksi ke Database Vektor/Log (PostgreSQL) dan mendaftarkan tipe vector."""
     conn = None
     try:
-        # Menghubungkan ke PostgreSQL
         conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD)
-        
-        # 1. Cari OID tipe 'vector'
         with conn.cursor() as cur:
+            # Pastikan ekstensi vector ada
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+            conn.commit()
+
+            # Cek apakah tipe vector sudah terdaftar
             cur.execute("SELECT oid FROM pg_type WHERE typname = 'vector'")
-            vector_oid = cur.fetchone()[0]
+            row = cur.fetchone()
+            if not row:
+                raise Exception("❌ Ekstensi pgvector belum aktif di database.")
+            vector_oid = row[0]
         
         # 2. Buat fungsi konversi (membersihkan kurung siku atau kurung kurawal)
         def cast_vector(data, cur):
