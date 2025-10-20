@@ -1,11 +1,15 @@
 import time
 import sys
 import os
+from dotenv import load_dotenv
 import psycopg2
 import psycopg2.extensions 
 import numpy as np
 import shutil 
 import uuid 
+
+load_dotenv()  # Load environment variables from .env file
+
 from pathlib import Path
 from datetime import date, timedelta, datetime
 import io
@@ -41,6 +45,7 @@ except ImportError:
     
 # Import library FastAPI
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form 
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.staticfiles import StaticFiles
 from starlette.status import HTTP_302_FOUND
@@ -71,7 +76,8 @@ except ImportError:
 
 # Konfigurasi DB PostgreSQL
 # KRITIS: Ubah "localhost" menjadi nama service DB (misalnya, "db") jika di Docker Compose
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1:5435")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "intern_attendance_db")
 DB_USER = os.getenv("DB_USER", "macbookpro") 
 DB_PASSWORD = os.getenv("DB_PASSWORD", "deepfacepass") 
@@ -93,6 +99,13 @@ DAILY_RESET_MINUTE = 00
 
 # --- INISIALISASI APLIKASI ---
 app = FastAPI(title="DeepFace Absensi API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount folder audio, images, dan faces
 app.mount("/audio", StaticFiles(directory=str(AUDIO_FILES_DIR), check_dir=True), name="generated_audio")
@@ -210,7 +223,7 @@ def connect_db():
     """Membuat koneksi ke Database Vektor/Log (PostgreSQL) dan mendaftarkan tipe vector."""
     conn = None
     try:
-        conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD)
+        conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD, port=DB_PORT)
         with conn.cursor() as cur:
             # Pastikan ekstensi vector ada
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")

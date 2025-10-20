@@ -8,27 +8,36 @@ services:
       POSTGRES_PASSWORD: deepfacepass
       POSTGRES_DB: intern_attendance_db
     ports:
+      # Port 5435 di Mac Anda akan terhubung ke port 5432 di dalam container
       - "5435:5432"
+    # WAJIB: Healthcheck memastikan DB siap sebelum API berjalan
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   # Service 2: API (Python/FastAPI kita)
   api:
     build: .
     ports:
-      # Memetakan port 8000 di PC ke port 8000 di container
       - "8000:8000"
     environment:
-      # KRITIS: Beri tahu Python cara menemukan database.
-      # 'db' adalah nama service di atas.
+      # --- KONFIGURASI YANG BENAR UNTUK API ---
       DB_HOST: postgres
+      DB_PORT: 5432  # <-- PENTING: Gunakan port internal DB (5432)
       DB_USER: macbookpro
       DB_PASSWORD: deepfacepass
       DB_NAME: intern_attendance_db
+      # ------------------------------------------
     volumes:
-      # Ini akan "mirror" kode lokal Anda ke container,
-      # jadi perubahan kode akan langsung terlihat
       - .:/app
     depends_on:
-      - postgres # Bilang ke Docker: "Nyalakan DB dulu, baru API"
+      # PENTING: Tunggu sampai healthcheck postgres 'healthy'
+      postgres:
+        condition: service_healthy
     restart: always
 
 volumes:
