@@ -3,7 +3,7 @@ FROM python:3.9-slim-bullseye
 RUN apt-get update && apt-get install -y \
     libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
     && pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir numpy==1.23.5 opencv-python-headless==4.8.1.78
+    && pip install --no-cache-dir numpy==1.21.6 opencv-python-headless==4.5.5.64
 
 # 3. Tetapkan folder kerja di dalam container
 WORKDIR /app
