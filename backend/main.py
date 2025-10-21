@@ -1,12 +1,14 @@
 import time
 import sys
+import subprocess
+from fastapi import BackgroundTasks
 import os
 from dotenv import load_dotenv
 import psycopg2
 import psycopg2.extensions 
 import numpy as np
 import shutil 
-import uuid 
+import uuid
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -472,6 +474,39 @@ def reset_attendance_logs():
         if conn:
             conn.close()
 
+def run_indexing_subprocess():
+    """
+    Fungsi wrapper yang akan dijalankan oleh Background Task.
+    Fungsi ini memanggil skrip indexing sebagai subprocess terpisah.
+    Ini adalah cara paling AMAN untuk menghindari konflik path/import.
+    """
+    print("🚀 [Background Task] Memulai subprocess index_data_incremental.py...")
+    try:
+        # Perintah ini sama dengan yang Anda ketik di terminal:
+        # python -m backend.index_data_incremental
+        # (Saya asumsikan file Anda adalah index_data_incremental.py)
+        
+        command = [sys.executable, "-m", "backend.index_data"]
+        
+        # KRUSIAL: Menjalankan perintah dari PROJECT_ROOT
+        process = subprocess.run(
+            command,
+            cwd=str(PROJECT_ROOT), 
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Jika sukses, cetak outputnya ke log server
+        print("✅ [Background Task] Indexing Selesai.")
+        print(process.stdout)
+        
+    except subprocess.CalledProcessError as e:
+        # Jika skripnya error
+        print(f"❌ [Background Task] Indexing Gagal (Error Subprocess):")
+        print(e.stderr)
+    except Exception as e:
+        print(f"❌ [Background Task] Gagal menjalankan subprocess: {e}")
 
 # --- HOOK UNTUK MEMBUKA BROWSER OTOMATIS & SCHEDULING (PERMINTAAN USER) ---
 
@@ -808,6 +843,26 @@ async def delete_face(name: str):
             conn.close()
 
 # --- ENDPOINTS LAINNYA ---
+@app.post("/run_indexing")
+async def run_indexing_endpoint(background_tasks: BackgroundTasks):
+    """
+    Memicu proses indexing data incremental di background via subprocess.
+    """
+    try:
+        # Menambahkan tugas ke antrian background FastAPI
+        background_tasks.add_task(run_indexing_subprocess)
+        
+        print("✅ [API] Proses indexing telah di-antrekan (queued)...")
+        
+        # Langsung kirim respons ke user (tanpa menunggu selesai)
+        return {
+            "status": "queued", 
+            "message": "Proses indexing telah dimulai di background. Ini mungkin memakan waktu beberapa menit."
+        }
+    except Exception as e:
+        print(f"❌ [API] Gagal memulai background task: {e}")
+        raise HTTPException(status_code=500, detail=f"Gagal memulai indexing task: {e}")
+
 @app.post("/reload_db") 
 async def reload_db():
     """Simulasi muat ulang/sinkronisasi DB (Asumsi bahwa proses indexing dilakukan di script terpisah)."""

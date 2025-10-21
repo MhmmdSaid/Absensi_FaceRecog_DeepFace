@@ -55,14 +55,15 @@
             RESET OTOMATIS AKTIF
           </div>
         </div>
+        
         <div class="p-4 border rounded-lg shadow-md bg-white">
           <h3 class="font-semibold text-lg mb-2 text-blue-600">Jalankan Indexing Manual</h3>
-          <p class="text-sm text-gray-600 mb-3">Jalankan skrip **`python -m backend.index_data`** di terminal Anda untuk memproses wajah baru.</p>
-          <button onclick="alert('Instruksi: Silakan jalankan perintah python -m backend.index_data di terminal Anda. (Pastikan Anda sudah mengambil minimal 10 gambar di Data Collector)')" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md w-full transition duration-300">
-            Lihat Instruksi
+          <p class="text-sm text-gray-600 mb-3">Tekan tombol ini untuk memindai folder 'data/dataset' dan memproses wajah baru ke database.</p>
+          <button id="startIndexingButton" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md w-full transition duration-300 disabled:bg-gray-400">
+            Mulai Proses Indexing
           </button>
         </div>
-      </div>
+        </div>
 
       <h3 class="font-semibold text-xl mb-4 text-gray-800">Daftar Wajah Terdaftar di Sistem</h3>
       <div class="table-container">
