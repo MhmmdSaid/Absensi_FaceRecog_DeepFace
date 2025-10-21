@@ -10,7 +10,7 @@ WORKDIR /app
 
 # 4. Salin daftar belanjaan (requirements.txt) dan instal
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # 5. Salin seluruh kode proyek Anda ke dalam container
 COPY . .

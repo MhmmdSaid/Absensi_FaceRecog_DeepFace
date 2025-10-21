@@ -72,12 +72,13 @@ try:
 except ImportError:
     try:
          # Fallback ke import relatif jika dijalankan sebagai modul
-        from .utils import extract_face_features, DISTANCE_THRESHOLD
+        from .utils import extract_face_features, DISTANCE_THRESHOLD, EMBEDDING_DIM
     except ImportError:
          # Fallback terakhir jika utils.py tidak ditemukan
         print("⚠️ Peringatan: Gagal mengimpor utilitas (utils.py). Pastikan file ini ada di backend/utils.py.")
         def extract_face_features(image_bytes): return []
         DISTANCE_THRESHOLD = 0.5
+        EMBEDDING_DIM = 512
 
 # --- KONFIGURASI DB (DIBACA DARI ENV YANG DISUNTIK DOCKER) ---
 DB_HOST = os.getenv("DB_HOST", "localhost") # Akan menjadi 'postgres' di Docker
@@ -450,26 +451,45 @@ def run_indexing_subprocess():
 
 @app.on_event("startup")
 async def startup_event():
-    """Melakukan inisialisasi DB dan menjadwalkan reset saat startup."""
-    try:
-        initialize_db()
-    except Exception as e:
-        print(f"❌ Gagal menjalankan aplikasi karena inisialisasi DB gagal: {e}")
-        sys.exit(1)
+    """Melakukan inisialisasi DB (dengan retry) dan menjadwalkan reset."""
+    
+    # --- LOGIKA RETRY UNTUK KONEKSI DB ---
+    max_retries = 5
+    retries = 0
+    connected = False
+    
+    print("🚀 [Startup] Memulai inisialisasi database...")
+    
+    while not connected and retries < max_retries:
+        try:
+            initialize_db() # Coba inisialisasi
+            connected = True # Jika berhasil, setel flag
+            print("✅ [Startup] Inisialisasi database BERHASIL.")
+            
+        except Exception as e:
+            retries += 1
+            print(f"⚠️ [Startup] Gagal koneksi DB (Percobaan {retries}/{max_retries}): {e}")
+            if retries < max_retries:
+                print(f"   -> Mencoba lagi dalam 5 detik...")
+                time.sleep(5) # Tunggu 5 detik sebelum mencoba lagi
+            else:
+                print(f"❌ [Startup] FATAL: Gagal total inisialisasi DB setelah {max_retries} percobaan.")
+                # Hentikan aplikasi jika gagal total, tapi jangan sys.exit
+                raise e # Biarkan FastAPI menangani error startup
 
     # --- LOGIKA PENJADWALAN ---
+    # Kode ini hanya akan berjalan jika 'initialize_db()' berhasil
     global scheduler
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         reset_attendance_logs,
-        CronTrigger(hour=DAILY_RESET_HOUR, minute=DAILY_RESET_MINUTE, timezone=str(local_tz)), # Tambahkan timezone
+        CronTrigger(hour=DAILY_RESET_HOUR, minute=DAILY_RESET_MINUTE, timezone=str(local_tz)),
         id='daily_attendance_reset',
         name='Daily Absensi Log Reset'
     )
     scheduler.start()
     print(f"✅ Penjadwalan reset absensi harian ({DAILY_RESET_HOUR}:{DAILY_RESET_MINUTE} WIB) aktif.")
     print("✅ Startup event selesai. Server siap menerima koneksi.")
-
 
 # --- ENDPOINTS DATA COLLECTOR ---
 
