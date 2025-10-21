@@ -1,28 +1,24 @@
-# Gunakan image penuh agar TensorFlow bisa ter-install
-FROM python:3.9-bullseye
+# 1. Mulai dari image Python 3.9 yang ringan
+FROM python:3.9-slim-bullseye
 
-# Instal dependensi sistem (OpenCV, BLAS, compiler)
+# 2. Instal library sistem yang dibutuhkan oleh OpenCV (komponen DeepFace)
 RUN apt-get update && apt-get install -y \
-    libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
-    build-essential gfortran \
-    && pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir \
-    numpy==1.21.6 \
-    opencv-python-headless==4.5.5.64 \
-    tensorflow==2.10.1 \
-    keras==2.10.0 \
-    deepface==0.0.75 \
-    uvicorn==0.37.0
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6
 
-# Tetapkan folder kerja
+# 3. Tetapkan folder kerja di dalam container
 WORKDIR /app
 
-# Salin requirements tambahan (jika ada)
+# 4. Salin daftar belanjaan (requirements.txt) dan instal
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Salin semua file project
+# 5. Salin seluruh kode proyek Anda ke dalam container
 COPY . .
 
-# Jalankan aplikasi FastAPI
+# 6. Perintah untuk menjalankan server saat container dinyalakan
+#    --host 0.0.0.0 sangat penting agar bisa diakses
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
