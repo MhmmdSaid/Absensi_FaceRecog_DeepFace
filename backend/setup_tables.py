@@ -31,7 +31,7 @@ else:
     print(f"   ⚠️ PERINGATAN: File .env tidak ditemukan di {env_path}, menggunakan fallback.")
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")  # Akan diambil dari .env (5435)
+DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "intern_attendance_db")
 DB_USER = os.getenv("DB_USER", "macbookpro")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "deepfacepass")

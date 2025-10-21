@@ -25,7 +25,6 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # --- KONFIGURASI YANG BENAR UNTUK API ---
       DB_HOST: postgres
       DB_PORT: 5432  # <-- PENTING: Gunakan port internal DB (5432)
       DB_USER: macbookpro
