@@ -77,21 +77,20 @@ def setup_database():
         print(f"✅ Tabel '{DB_TABLE_INTERNS}' berhasil dibuat.")
         
         # --- 4. BUAT ULANG TABEL ANAK (attendance_logs) ---
-        print("   -> Membuat ulang tabel attendance_logs...")
+        print("   -> Membuat ulang tabel intern_embeddings...")
         cur.execute(f"""
-            CREATE TABLE {DB_TABLE_LOGS} (
-                log_id SERIAL PRIMARY KEY,
-                intern_id INTEGER REFERENCES {DB_TABLE_INTERNS}(id),
-                intern_name TEXT NOT NULL,
-                instansi TEXT,
-                kategori TEXT,  
-                image_url TEXT, 
-                absent_at TIMESTAMP WITHOUT TIME ZONE DEFAULT LOCALTIMESTAMP,
-                type TEXT NOT NULL DEFAULT 'IN'
+            CREATE TABLE {DB_TABLE_EMBEDDINGS} (
+                id SERIAL PRIMARY KEY,
+                intern_id INTEGER REFERENCES {DB_TABLE_INTERNS}(id), 
+                name VARCHAR(100) NOT NULL,
+                instansi VARCHAR(100),
+                kategori VARCHAR(100),
+                file_path TEXT NOT NULL, 
+                embedding vector({EMBEDDING_DIM}) NOT NULL
             );
         """)
         conn.commit()
-        print(f"✅ Tabel '{DB_TABLE_LOGS}' berhasil dibuat.")
+        print(f"✅ Tabel '{DB_TABLE_EMBEDDINGS}' berhasil dibuat (vector size: {EMBEDDING_DIM}).")
         
         # --- 5. BUAT ULANG TABEL ANAK (intern_embeddings) ---
         print("   -> Membuat ulang tabel intern_embeddings...")

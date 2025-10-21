@@ -477,16 +477,18 @@ def reset_attendance_logs():
 def run_indexing_subprocess():
     """
     Fungsi wrapper yang akan dijalankan oleh Background Task.
-    Fungsi ini memanggil skrip indexing sebagai subprocess terpisah.
-    Ini adalah cara paling AMAN untuk menghindari konflik path/import.
+    ...
     """
-    print("🚀 [Background Task] Memulai subprocess index_data_incremental.py...")
+    print("🚀 [Background Task] Memulai subprocess index_data.py...")
     try:
-        # Perintah ini sama dengan yang Anda ketik di terminal:
-        # python -m backend.index_data_incremental
-        # (Saya asumsikan file Anda adalah index_data_incremental.py)
         
-        command = [sys.executable, "-m", "backend.index_data"]
+        # --- PERBAIKI BARIS INI ---
+        # LAMA:
+        # command = [sys.executable, "-m", "backend.index_data"]
+        
+        # BARU (Tambahkan "-u" untuk 'unbuffered output'):
+        command = [sys.executable, "-u", "-m", "backend.index_data"]
+        # -------------------------
         
         # KRUSIAL: Menjalankan perintah dari PROJECT_ROOT
         process = subprocess.run(
@@ -497,15 +499,26 @@ def run_indexing_subprocess():
             check=True
         )
         
-        # Jika sukses, cetak outputnya ke log server
+        # Ini hanya akan berjalan jika skrip SUKSES
         print("✅ [Background Task] Indexing Selesai.")
         print(process.stdout)
         
     except subprocess.CalledProcessError as e:
-        # Jika skripnya error
+        # --- PERUBAHAN KRITIS ADA DI SINI ---
+        # 
+        # Skrip gagal (non-zero exit code), kita cetak KEDUA output stream
+        # karena pesan error bisa ada di salah satunya.
+        #
         print(f"❌ [Background Task] Indexing Gagal (Error Subprocess):")
-        print(e.stderr)
+        print("================== STANDARD ERROR (stderr) ==================")
+        print(e.stderr) # Ini yang kita punya sekarang (mungkin kosong)
+        print("================== STANDARD OUTPUT (stdout) ==================")
+        print(e.stdout) # Ini yang KEMUNGKINAN BERISI PESAN ERROR
+        print("===========================================================")
+        # --- AKHIR PERUBAHAN ---
+        
     except Exception as e:
+        # Error lain, misal: subprocess tidak ditemukan
         print(f"❌ [Background Task] Gagal menjalankan subprocess: {e}")
 
 # --- HOOK UNTUK MEMBUKA BROWSER OTOMATIS & SCHEDULING (PERMINTAAN USER) ---

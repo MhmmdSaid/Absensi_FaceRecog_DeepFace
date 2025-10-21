@@ -139,8 +139,9 @@ def get_existing_image_paths(conn, intern_id: int) -> set:
     """Mengambil semua path gambar yang sudah di-index untuk intern tertentu."""
     cur = conn.cursor()
     try:
-        cur.execute(f"SELECT image_path FROM {DB_TABLE_EMBEDDINGS} WHERE intern_id = %s", (intern_id,))
-        # Karena tipe vector sudah didaftarkan, data yang diambil adalah NumPy array
+        # --- UBAH BARIS INI ---
+        cur.execute(f"SELECT file_path FROM {DB_TABLE_EMBEDDINGS} WHERE intern_id = %s", (intern_id,))
+        # ---------------------
         return {row[0] for row in cur.fetchall()}
     finally:
         cur.close()
@@ -237,7 +238,7 @@ def index_data_incremental():
 
         # D. INSERT BATCH EMBEDDING BARU
         if embeddings_to_insert:
-            insert_query = f"INSERT INTO {DB_TABLE_EMBEDDINGS} (intern_id, name, instansi, kategori, image_path, embedding) VALUES (%s, %s, %s, %s, %s, %s::vector)"
+            insert_query = f"INSERT INTO {DB_TABLE_EMBEDDINGS} (intern_id, name, instansi, kategori, file_path, embedding) VALUES (%s, %s, %s, %s, %s, %s::vector)"
             
             try:
                 cur.executemany(insert_query, embeddings_to_insert)

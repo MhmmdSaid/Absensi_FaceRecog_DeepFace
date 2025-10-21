@@ -3,30 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Absensi Wajah - DeepFace</title>
+    <title>Absensi Wajah (Liveness) - DeepFace</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="style.css" />
-
-    <style>
-      .video-container {
-        position: relative;
-        /* Ukuran akan diatur oleh video element di bawah */
-      }
-      #videoElement,
-      #overlayCanvas {
-        /* Pastikan video dan canvas memiliki ukuran yang sama */
-        width: 100%;
-        max-width: 640px; /* Samakan dengan resolusi ideal kamera */
-        height: auto;
-        border-radius: 8px;
-      }
-      #overlayCanvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        pointer-events: none; /* Biar tidak menghalangi video */
-      }
-    </style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
   </head>
 
   <body class="layout-body">
@@ -41,17 +23,14 @@
         <img src="png/absen.png" alt="Absensi" class="sidebar-icon" />
         Absensi Wajah
       </a>
-
       <a href="data.html" class="sidebar-link">
         <img src="png/data.png" alt="Data Absensi" class="sidebar-icon" />
         Data Absensi Hari Ini
       </a>
-
       <a href="data_collector.html" class="sidebar-link">
         <img src="png/collector.png" alt="Data Collector" class="sidebar-icon" />
         Data Collector
       </a>
-
       <a href="settings.html" class="sidebar-link">
         <img src="png/database.png" alt="Settings" class="sidebar-icon" />
         Pengaturan & Indexing
@@ -60,37 +39,45 @@
 
     <main class="layout-main container-card">
       <div class="content-header">
-        <h2>Absensi Wajah Hari Ini</h2>
+        <h2>Absensi Wajah (Dengan Deteksi Kedipan)</h2>
+        <div class="font-bold text-lg" id="clock">00:00:00</div>
       </div>
 
-      <div id="statusArea" class="status-area">Status Sistem: Siap.</div>
+      <div id="statusArea" class="status-area">
+        Arahkan wajah Anda ke kamera untuk absensi
+      </div>
 
-      <div id="videoContainer" class="video-container">
-        <video id="videoElement" autoplay muted playsinline></video>
-        <canvas id="canvasElement" style="display: none"></canvas>
+      <div class="flex flex-col md:flex-row gap-4">
         
-        <canvas id="overlayCanvas"></canvas>
-      </div>
+        <div class="flex-1 bg-black rounded-lg overflow-hidden shadow-lg relative">
+          
+          <video id="videoElement" class="w-full h-auto" autoplay muted playsinline></video>
+          
+          <canvas id="overlayCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+          <canvas id="canvasElement" class="hidden"></canvas> </div>
 
-      <div class="btn-group">
-        <button id="absenMasukBtn" class="btn-primary bg-green-500 hover:bg-green-600">
-          Absen MASUK
-        </button>
-        <button id="absenPulangBtn" class="btn-primary bg-red-500 hover:bg-red-600">
-          Absen PULANG
-        </button>
-      </div>
-
-      <div id="resultCard" class="result-card hidden">
-        <div class="result-header">
-          <p id="resultTitle" class="text-lg font-semibold"></p>
+        <div class="w-full md:w-1/3 p-4 bg-white rounded-lg shadow-md">
+          
+          <div id="resultCard" class="mb-6 hidden">
+            <h3 id="resultTitle" class="result-header">Hasil Absensi</h3>
+            <table class="w-full text-sm">
+              <tbody id="resultCardBody">
+                </tbody>
+            </table>
+          </div>
+          <h3 class="font-semibold text-xl mb-4 text-gray-800">Tipe Absensi</h3>
+          <div class="grid grid-cols-2 gap-4">
+            
+            <button id="absenMasukBtn" class="btn-absent bg-green-500 hover:bg-green-600">
+              MASUK
+            </button>
+            
+            <button id="absenPulangBtn" class="btn-absent bg-red-500 hover:bg-red-600">
+              PULANG
+            </button>
+          </div>
         </div>
-        <div class="result-body">
-          <table class="result-table">
-            <tbody id="resultCardBody">
-              </tbody>
-          </table>
-        </div>
+        
       </div>
     </main>
 
@@ -98,19 +85,21 @@
       &copy; 2025 Telkomsat Bogor
     </footer>
 
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
-      crossorigin="anonymous"
-    ></script>
-
     <script src="main.js"></script>
+    
+    <script>
+      function updateClock() {
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, "0");
+        const m = String(now.getMinutes()).padStart(2, "0");
+        const s = String(now.getSeconds()).padStart(2, "0");
+        const clockElement = document.getElementById("clock");
+        if (clockElement) {
+          clockElement.textContent = `${h}:${m}:${s}`;
+        }
+      }
+      setInterval(updateClock, 1000);
+      updateClock();
+    </script>
   </body>
 </html>
