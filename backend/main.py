@@ -481,12 +481,6 @@ def run_indexing_subprocess():
     """
     print("🚀 [Background Task] Memulai subprocess index_data.py...")
     try:
-        
-        # --- PERBAIKI BARIS INI ---
-        # LAMA:
-        # command = [sys.executable, "-m", "backend.index_data"]
-        
-        # BARU (Tambahkan "-u" untuk 'unbuffered output'):
         command = [sys.executable, "-u", "-m", "backend.index_data"]
         # -------------------------
         
