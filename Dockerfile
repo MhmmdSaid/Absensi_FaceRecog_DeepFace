@@ -1,13 +1,9 @@
-# 1. Mulai dari image Python 3.9 yang ringan
 FROM python:3.9-slim-bullseye
 
-# 2. Instal library sistem yang dibutuhkan oleh OpenCV (komponen DeepFace)
 RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6
+    libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
+    && pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir numpy==1.23.5 opencv-python-headless==4.8.1.78
 
 # 3. Tetapkan folder kerja di dalam container
 WORKDIR /app
